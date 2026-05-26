@@ -36,6 +36,8 @@ type Config struct {
 	Concurrency                 TypeConcurrency `json:"concurrency"`
 	PublicIPv4                  TypeIP          `json:"publicIpv4"`
 	PublicIPv6                  TypeIP          `json:"publicIpv6"`
+	UsersFile                   string          `json:"usersFile"`
+	API                         APIConfig       `json:"api"`
 	DomainFronting              struct {
 		Host          TypeHost `json:"host"`
 		IP            TypeIP   `json:"ip"`
@@ -92,6 +94,16 @@ type Config struct {
 			MetricPrefix TypeMetricPrefix `json:"metricPrefix"`
 		} `json:"prometheus"`
 	} `json:"stats"`
+}
+
+// APIConfig configures the telemt-compatible control-plane HTTP API.
+type APIConfig struct {
+	Enabled                 TypeBool   `json:"enabled"`
+	Listen                  TypeHostPort `json:"listen"`
+	Whitelist               []string   `json:"whitelist"`
+	AuthHeader              string     `json:"authHeader"`
+	RequestBodyLimitBytes   TypeConcurrency `json:"requestBodyLimitBytes"`
+	ReadOnly                TypeBool   `json:"readOnly"`
 }
 
 func (c *Config) GetConcurrency(defaultValue uint) uint {

@@ -212,6 +212,14 @@ This project has several main branches
    will change when we have v3.x.
 4. [`v1`](https://github.com/9seconds/mtg/tree/v1) has a version 1.x.
 
+## Multi-user API
+
+Per-user ee-secrets, `users.toml`, and a telemt-style control HTTP API
+(`POST/GET/DELETE /v1/users`, `GET /v1/health`).
+
+- [API reference](docs/API.md) — контракт, примеры curl, про уникальные secret
+- [Deploy on VPS](deploy/README.md) — Ansible, nginx, certbot
+
 ## Getting started
 
 ### Download mise

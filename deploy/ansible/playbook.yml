@@ -1,0 +1,143 @@
+---
+- name: Deploy mtg with users API
+  hosts: mtg
+  gather_facts: true
+  vars:
+    mtg_domain: "{{ lookup('env', 'MTG_DOMAIN') }}"
+    mtg_public_ip: "{{ lookup('env', 'MTG_PUBLIC_IP') }}"
+    mtg_proxy_port: "{{ lookup('env', 'MTG_PROXY_PORT') | int }}"
+    mtg_api_bind: "{{ lookup('env', 'MTG_API_BIND') }}"
+    mtg_api_public_port: "{{ lookup('env', 'MTG_API_PUBLIC_PORT') | int }}"
+    mtg_api_auth_header: "{{ lookup('env', 'MTG_API_AUTH_HEADER') }}"
+    mtg_secret: "{{ lookup('env', 'MTG_SECRET') }}"
+    mtg_default_host: "{{ lookup('env', 'MTG_DEFAULT_HOST') }}"
+    mtg_install_dir: /opt/mtg
+    mtg_local_binary: "{{ playbook_dir }}/../mtg-linux-amd64"
+
+  tasks:
+    - name: Require deploy .env variables
+      ansible.builtin.assert:
+        that:
+          - mtg_domain | length > 0
+          - mtg_secret | length > 0
+          - mtg_api_auth_header | length > 0
+        fail_msg: "Fill deploy/.env (see deploy/.env.example)"
+
+    - name: Allow mtg ports in UFW
+      ansible.builtin.command: "ufw allow {{ item.port }}/tcp comment {{ item.comment }}"
+      register: ufw_rule
+      changed_when: "'Rule added' in ufw_rule.stdout"
+      failed_when: ufw_rule.rc != 0 and 'Skipping' not in ufw_rule.stderr
+      loop:
+        - { port: "{{ mtg_api_public_port }}", comment: mtg-api }
+        - { port: "{{ mtg_proxy_port }}", comment: mtg-mtproto }
+
+    - name: Install packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - certbot
+          - python3-certbot-nginx
+        state: present
+        update_cache: true
+
+    - name: Create install directory
+      ansible.builtin.file:
+        path: "{{ mtg_install_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Install mtg binary
+      ansible.builtin.copy:
+        src: "{{ mtg_local_binary }}"
+        dest: "{{ mtg_install_dir }}/mtg"
+        mode: "0755"
+
+    - name: Render mtg config
+      ansible.builtin.template:
+        src: config.toml.j2
+        dest: "{{ mtg_install_dir }}/config.toml"
+        mode: "0644"
+      notify: Restart mtg
+
+    - name: Render users.toml
+      ansible.builtin.template:
+        src: users.toml.j2
+        dest: "{{ mtg_install_dir }}/users.toml"
+        mode: "0600"
+      notify: Restart mtg
+
+    - name: Install systemd unit
+      ansible.builtin.template:
+        src: mtg.service.j2
+        dest: /etc/systemd/system/mtg.service
+        mode: "0644"
+      notify:
+        - Daemon reload
+        - Restart mtg
+
+    - name: Enable and start mtg
+      ansible.builtin.systemd:
+        name: mtg
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Deploy nginx site (HTTP for ACME)
+      ansible.builtin.template:
+        src: nginx-mtg-api.conf.j2
+        dest: "/etc/nginx/sites-available/mtg-api-{{ mtg_domain }}"
+        mode: "0644"
+      notify: Reload nginx
+
+    - name: Enable nginx site
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/mtg-api-{{ mtg_domain }}"
+        dest: "/etc/nginx/sites-enabled/mtg-api-{{ mtg_domain }}"
+        state: link
+      notify: Reload nginx
+
+    - name: Test nginx config
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    - name: Reload nginx before cert
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+
+    - name: Obtain TLS certificate
+      ansible.builtin.command: >-
+        certbot certonly --nginx
+        -d {{ mtg_domain }}
+        --non-interactive --agree-tos
+        -m admin@zxcv.best
+      args:
+        creates: "/etc/letsencrypt/live/{{ mtg_domain }}/fullchain.pem"
+      register: certbot_result
+      failed_when: >-
+        certbot_result.rc != 0
+        and 'Certificate not yet due for renewal' not in (certbot_result.stdout | default(''))
+        and 'Certificate not yet due for renewal' not in (certbot_result.stderr | default(''))
+
+    - name: Deploy nginx site (HTTPS + API proxy)
+      ansible.builtin.template:
+        src: nginx-mtg-api-ssl.conf.j2
+        dest: "/etc/nginx/sites-available/mtg-api-{{ mtg_domain }}"
+        mode: "0644"
+      notify: Reload nginx
+
+  handlers:
+    - name: Daemon reload
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart mtg
+      ansible.builtin.systemd:
+        name: mtg
+        state: restarted
+
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

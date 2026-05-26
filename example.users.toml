@@ -1,0 +1,21 @@
+# Per-user MTProto proxy credentials (telemt-inspired).
+# Referenced from config.toml via: users-file = "example.users.toml"
+
+[general]
+# Hostname embedded into auto-generated ee-secrets (FakeTLS SNI).
+default-host = "google.com"
+
+[general.links]
+# Public endpoint shown in tg://proxy links (overrides auto-detected IP).
+public-host = "203.0.113.10"
+public-port = 443
+
+[[users]]
+username = "alice"
+# ee-secret (base64 or hex). Omit to auto-generate on first load if default-host is set.
+secret = "ee473ce5d4958eb5f968c87680a23854a0676f6f676c652e636f6d"
+expiration-rfc3339 = "2027-01-01T00:00:00Z"
+
+[[users]]
+username = "bob"
+secret = "ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c65617069732e636f6d"

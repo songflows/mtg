@@ -23,6 +23,15 @@ type tomlConfig struct {
 	Concurrency                 uint   `toml:"concurrency" json:"concurrency,omitempty"`
 	PublicIPv4                  string `toml:"public-ipv4" json:"publicIpv4,omitempty"`
 	PublicIPv6                  string `toml:"public-ipv6" json:"publicIpv6,omitempty"`
+	UsersFile                   string `toml:"users-file" json:"usersFile,omitempty"`
+	API                         struct {
+		Enabled               bool     `toml:"enabled" json:"enabled,omitempty"`
+		Listen                string   `toml:"listen" json:"listen,omitempty"`
+		Whitelist             []string `toml:"whitelist" json:"whitelist,omitempty"`
+		AuthHeader            string   `toml:"auth-header" json:"authHeader,omitempty"`
+		RequestBodyLimitBytes uint     `toml:"request-body-limit-bytes" json:"requestBodyLimitBytes,omitempty"`
+		ReadOnly              bool     `toml:"read-only" json:"readOnly,omitempty"`
+	} `toml:"api" json:"api,omitempty"`
 	DomainFronting              struct {
 		Host          string `toml:"host" json:"host,omitempty"`
 		IP            string `toml:"ip" json:"ip,omitempty"`

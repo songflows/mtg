@@ -28,6 +28,18 @@ secret = "ee367a189aee18fa31c190054efd4a8e9573746f726167652e676f6f676c6561706973
 #     "[::]:3128"
 bind-to = "0.0.0.0:3128"
 
+# Optional per-user credentials file (see example.users.toml).
+# users-file = "example.users.toml"
+
+# Telemt-compatible control-plane API for user/link management.
+# [api]
+# enabled = true
+# listen = "127.0.0.1:9091"
+# whitelist = ["127.0.0.1/32", "::1/128"]
+# auth-header = "Bearer change-me"
+# request-body-limit-bytes = 65536
+# read-only = false
+
 # This defines what types of traffic mtg listens to. If you are not sure,
 # then definitely keep it disable. Enable it only and only if incoming traffic
 # is coming from some sort of load-balancer like HAProxy or ELB.

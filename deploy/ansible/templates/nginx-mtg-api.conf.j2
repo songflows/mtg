@@ -1,0 +1,15 @@
+# mtg control API — {{ mtg_domain }} (ACME bootstrap)
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ mtg_domain }};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$http_host$request_uri;
+    }
+}

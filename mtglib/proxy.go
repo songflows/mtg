@@ -39,6 +39,7 @@ type Proxy struct {
 	clientObfuscatror           obfuscation.Obfuscator
 
 	secret          Secret
+	secretProvider  SecretProvider
 	network         Network
 	antiReplayCache AntiReplayCache
 	blocklist       IPBlocklist
@@ -189,12 +190,7 @@ func (p *Proxy) Shutdown() {
 func (p *Proxy) doFakeTLSHandshake(ctx *streamContext) bool {
 	rewind := newConnRewind(ctx.clientConn)
 
-	clientHello, err := fake.ReadClientHello(
-		rewind,
-		p.secret.Key[:],
-		p.secret.Host,
-		p.tolerateTimeSkewness,
-	)
+	secret, clientHello, err := p.matchClientHello(rewind)
 	if err != nil {
 		p.logger.InfoError("cannot read client hello", err)
 		p.doDomainFronting(ctx, rewind)
@@ -211,18 +207,59 @@ func (p *Proxy) doFakeTLSHandshake(ctx *streamContext) bool {
 	gangerNoise := p.doppelGanger.NoiseParams()
 	noiseParams := fake.NoiseParams{Mean: gangerNoise.Mean, Jitter: gangerNoise.Jitter}
 
-	if err := fake.SendServerHello(ctx.clientConn, p.secret.Key[:], clientHello, noiseParams); err != nil {
+	if err := fake.SendServerHello(ctx.clientConn, secret.Key[:], clientHello, noiseParams); err != nil {
 		p.logger.InfoError("cannot send welcome packet", err)
 		return false
 	}
 
+	ctx.secret = secret
 	ctx.clientConn = tls.New(ctx.clientConn, true, false)
 
 	return true
 }
 
+func (p *Proxy) matchClientHello(rewind *connRewind) (Secret, *fake.ClientHello, error) {
+	secrets := p.handshakeSecrets()
+	var lastErr error
+
+	for _, secret := range secrets {
+		rewind.Rewind()
+
+		clientHello, err := fake.ReadClientHello(
+			rewind,
+			secret.Key[:],
+			secret.Host,
+			p.tolerateTimeSkewness,
+		)
+		if err == nil {
+			return secret, clientHello, nil
+		}
+
+		lastErr = err
+	}
+
+	if lastErr == nil {
+		lastErr = ErrSecretInvalid
+	}
+
+	return Secret{}, nil, lastErr
+}
+
+func (p *Proxy) handshakeSecrets() []Secret {
+	if p.secretProvider != nil {
+		return p.secretProvider.ActiveSecrets(time.Now())
+	}
+
+	return []Secret{p.secret}
+}
+
 func (p *Proxy) doObfuscatedHandshake(ctx *streamContext) error {
-	dc, conn, err := p.clientObfuscatror.ReadHandshake(ctx.clientConn)
+	obfuscator := p.clientObfuscatror
+	if ctx.secret.Valid() {
+		obfuscator = obfuscation.Obfuscator{Secret: ctx.secret.Key[:]}
+	}
+
+	dc, conn, err := obfuscator.ReadHandshake(ctx.clientConn)
 	if err != nil {
 		return fmt.Errorf("cannot process client handshake: %w", err)
 	}
@@ -352,6 +389,7 @@ func NewProxy(opts ProxyOpts) (*Proxy, error) {
 		ctx:                      ctx,
 		ctxCancel:                cancel,
 		secret:                   opts.Secret,
+		secretProvider:           opts.SecretProvider,
 		network:                  opts.Network,
 		antiReplayCache:          opts.AntiReplayCache,
 		blocklist:                opts.IPBlocklist,

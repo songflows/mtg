@@ -9,8 +9,13 @@ import "time"
 type ProxyOpts struct {
 	// Secret defines a secret which should be used by a proxy.
 	//
-	// This is a mandatory setting.
+	// Mandatory when SecretProvider is nil.
 	Secret Secret
+
+	// SecretProvider enables multi-user mode. When set, handshake accepts any
+	// active secret returned by the provider. Secret may still be required as
+	// a template (domain fronting fallback) but is not used for auth.
+	SecretProvider SecretProvider
 
 	// Network defines a network instance which should be used for all network
 	// communications made by proxies.

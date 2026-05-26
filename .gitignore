@@ -8,3 +8,5 @@
 mtg
 coverage.txt
 dist/
+deploy/.env
+deploy/mtg-linux-amd64

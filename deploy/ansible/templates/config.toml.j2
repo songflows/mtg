@@ -1,0 +1,16 @@
+secret = "{{ mtg_secret }}"
+bind-to = "0.0.0.0:{{ mtg_proxy_port }}"
+
+users-file = "{{ mtg_install_dir }}/users.toml"
+
+public-ipv4 = "{{ mtg_public_ip }}"
+
+[api]
+enabled = true
+listen = "{{ mtg_api_bind }}"
+whitelist = ["127.0.0.1/32", "::1/128"]
+auth-header = "{{ mtg_api_auth_header }}"
+read-only = false
+
+[defense.anti-replay]
+enabled = true

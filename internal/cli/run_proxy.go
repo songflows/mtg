@@ -6,9 +6,11 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/9seconds/mtg/v2/antireplay"
 	"github.com/9seconds/mtg/v2/events"
+	"github.com/9seconds/mtg/v2/internal/api"
 	"github.com/9seconds/mtg/v2/internal/config"
 	"github.com/9seconds/mtg/v2/internal/proxyprotocol"
 	"github.com/9seconds/mtg/v2/internal/utils"
@@ -279,7 +281,7 @@ func warnDeprecatedDomainFronting(conf *config.Config, log mtglib.Logger) {
 	}
 }
 
-func runProxy(conf *config.Config, version string) error { //nolint: funlen, cyclop
+func runProxy(conf *config.Config, version string, configPath string) error { //nolint: funlen, cyclop
 	logger := makeLogger(conf)
 
 	logger.BindJSON("configuration", conf.String()).Debug("configuration")
@@ -321,6 +323,15 @@ func runProxy(conf *config.Config, version string) error { //nolint: funlen, cyc
 		return fmt.Errorf("cannot build ip allowlist: %w", err)
 	}
 
+	userStore, err := makeUsersStore(conf, configPath)
+	if err != nil {
+		return err
+	}
+
+	if userStore != nil {
+		logger.BindStr("users-file", userStore.Path()).Info("multi-user mode enabled")
+	}
+
 	doppelGangerURLs := make([]string, len(conf.Defense.Doppelganger.URLs))
 	for i, v := range conf.Defense.Doppelganger.URLs {
 		doppelGangerURLs[i] = v.String()
@@ -335,6 +346,7 @@ func runProxy(conf *config.Config, version string) error { //nolint: funlen, cyc
 		EventStream:     eventStream,
 
 		Secret:                      conf.Secret,
+		SecretProvider:              userStore,
 		Concurrency:                 conf.GetConcurrency(mtglib.DefaultConcurrency),
 		DomainFrontingPort:          conf.GetDomainFrontingPort(mtglib.DefaultDomainFrontingPort),
 		DomainFrontingHost:          conf.GetDomainFrontingHost(),
@@ -371,13 +383,32 @@ func runProxy(conf *config.Config, version string) error { //nolint: funlen, cyc
 		}
 	}
 
+	apiServer, err := api.NewServer(conf, userStore)
+	if err != nil {
+		return fmt.Errorf("cannot start control API: %w", err)
+	}
+
 	ctx := utils.RootContext()
 
 	go proxy.Serve(listener) //nolint: errcheck
 
+	if apiServer != nil {
+		go func() {
+			if err := apiServer.ListenAndServe(); err != nil && ctx.Err() == nil {
+				logger.WarningError("control API stopped", err)
+			}
+		}()
+	}
+
 	<-ctx.Done()
 	listener.Close() //nolint: errcheck
 	proxy.Shutdown()
+
+	if apiServer != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = apiServer.Shutdown(shutdownCtx)
+	}
 
 	return nil
 }
