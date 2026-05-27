@@ -18,6 +18,22 @@ Control-plane только: трафик MTProto через API не идёт.
 
 Секрет в ответе `POST` — поле `data.secret` (дублирует secret внутри `tg://` ссылки в `data.user.links.tls`).
 
+### `max_unique_ips` vs `active_unique_ips`
+
+| Поле | В запросе (POST/PATCH) | В ответе |
+| --- | --- | --- |
+| `max_unique_ips` | **Лимит** уникальных IP (передайте `3` сюда) | Сохранённый лимит |
+| `active_unique_ips` | Алиас лимита (тоже принимается) | **Сейчас** подключено с разных IP (0 если никто не онлайн) |
+
+Ограничивает, с **скольких разных IP** одновременно можно пользоваться одной учёткой.
+
+- Повторное подключение с **уже известного** IP — разрешено (считаются отдельные сессии).
+- Новый IP при `active_unique_ips >= max_unique_ips` — **отклоняется** на этапе handshake (после успешной auth).
+- Лимит не задан (`null` / поле отсутствует) — без ограничения.
+- `0` — любые новые подключения отклоняются.
+
+Пример POST: `{ "username": "alice", "max_unique_ips": 3 }` → в ответе `"max_unique_ips": 3`, `"active_unique_ips": 0` (пока нет сессий).
+
 Формат секрета mtg (не 32 hex как в classic telemt):
 
 ```text
@@ -136,7 +152,36 @@ curl -sk "$API_URL/v1/users/alice" \
   | jq '{username: .data.username, expired: .data.expired, expires: .data.expiration_rfc3339, link: .data.links.tls[0]}'
 ```
 
-### 3. Удалить пользователя (revoke)
+### 3. Обновить срок подписки (PATCH)
+
+Продлить или изменить `expires_at` (меняются только переданные поля):
+
+```bash
+curl -sk -X PATCH "https://stun06-ge.zxcv.best:8445/v1/users/105880381" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"expires_at":"2027-06-01T00:00:00Z"}'
+```
+
+Убрать срок (бессрочно):
+
+```bash
+curl -sk -X PATCH "https://stun06-ge.zxcv.best:8445/v1/users/105880381" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"expiration_rfc3339":null}'
+```
+
+Сменить secret (ссылка в Telegram изменится):
+
+```bash
+curl -sk -X PATCH "https://stun06-ge.zxcv.best:8445/v1/users/105880381" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"secret":"NEW_EE_SECRET_BASE64_OR_HEX"}'
+```
+
+### 4. Удалить пользователя (revoke)
 
 Ссылка и secret перестают работать сразу после успешного ответа.
 
@@ -234,6 +279,7 @@ echo "https://t.me/proxy?${QUERY}"
 | `403` | `forbidden` | IP не в `whitelist` (прямой доступ к loopback API) |
 | `403` | `read_only` | `read-only = true`, мутация запрещена |
 | `404` | `not_found` | Нет маршрута или пользователя |
+| `405` | `method_not_allowed` | Неподдерживаемый метод (например `PUT /v1/users/{username}`) |
 | `409` | `user_exists` | Повторное создание username |
 | `409` | (в теле) revision conflict | Неверный `If-Match` |
 | `503` | `api_disabled` | Нет `users-file` / store |
@@ -247,6 +293,7 @@ echo "https://t.me/proxy?${QUERY}"
 | `GET` | `/v1/health` | — | `200` | `{ "status": "ok", "read_only": bool }` |
 | `POST` | `/v1/users` | `CreateUserRequest` | `201` | `CreateUserResponse` |
 | `GET` | `/v1/users/{username}` | — | `200` | `UserInfo` |
+| `PATCH` | `/v1/users/{username}` | `PatchUserRequest` | `200` | `UserInfo` |
 | `DELETE` | `/v1/users/{username}` | — | `200` | `string` (username) |
 
 > Список всех пользователей (`GET /v1/users`) пока не реализован — только по одному username.
@@ -261,6 +308,7 @@ echo "https://t.me/proxy?${QUERY}"
 | `secret` | string | нет | ee-secret (base64/hex). Если пусто — автогенерация |
 | `expiration_rfc3339` | string | нет | Срок действия, RFC3339 (например `2026-12-31T23:59:59Z`) |
 | `expires_at` | string | нет | Алиас для `expiration_rfc3339` |
+| `max_unique_ips` | number | нет | Макс. число **разных** source IP с активным подключением одновременно |
 
 ### Пример: создать пользователя с автогенерацией secret
 
@@ -354,14 +402,65 @@ curl -sk -X POST "$API_URL/v1/users" \
 
 ---
 
+## `PatchUserRequest` — `PATCH /v1/users/{username}`
+
+Частичное обновление. Поля, которых нет в JSON, **не меняются**.
+
+| Поле | Тип | Описание |
+| --- | --- | --- |
+| `secret` | `string` | Новый ee-secret (base64/hex) |
+| `expiration_rfc3339` | `string` \| `null` | Новый срок; `null` — убрать ограничение |
+| `expires_at` | `string` \| `null` | Алиас для `expiration_rfc3339` (если оба заданы, побеждает `expires_at`) |
+| `max_unique_ips` | `number` \| `null` | Лимит уникальных IP; `null` — снять лимит |
+
+### Пример: продлить подписку
+
+```bash
+curl -sk -X PATCH "$API_URL/v1/users/alice" \
+  -H "Authorization: $AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{"expiration_rfc3339":"2027-12-31T23:59:59Z"}'
+```
+
+**Ответ `200`:** `UserInfo` в `data` (обновлённые `links.tls` с тем же secret, если secret не меняли).
+
+### Пример: снять срок
+
+```bash
+curl -sk -X PATCH "$API_URL/v1/users/alice" \
+  -H "Authorization: $AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{"expiration_rfc3339":null}'
+```
+
+### Пример: PATCH на несуществующего пользователя
+
+```bash
+curl -sk -X PATCH "$API_URL/v1/users/nobody" \
+  -H "Authorization: $AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{"expires_at":"2026-01-01T00:00:00Z"}'
+# → 404 not_found
+```
+
+### `405 method_not_allowed`
+
+```bash
+curl -sk -X PUT "$API_URL/v1/users/alice" ...
+# → 405
+```
+
+---
+
 ## `UserInfo` — `GET /v1/users/{username}`
 
 | Поле | Тип | Описание |
 | --- | --- | --- |
 | `username` | string | Имя пользователя |
 | `expiration_rfc3339` | string? | Срок действия |
-| `current_connections` | number | Зарезервировано (сейчас всегда `0`) |
-| `active_unique_ips` | number | Зарезервировано (сейчас всегда `0`) |
+| `max_unique_ips` | number? | Настроенный лимит (если задан) |
+| `current_connections` | number | Активных TCP-сессий сейчас |
+| `active_unique_ips` | number | Сколько разных source IP сейчас подключено |
 | `total_octets` | number | Зарезервировано (сейчас всегда `0`) |
 | `links.tls` | string[] | Активные `tg://proxy` (ee / FakeTLS) |
 | `expired` | bool | `true`, если срок истёк |
@@ -442,7 +541,9 @@ curl -sk "$API_URL/v1/health" -H "Authorization: $AUTH"
 
 ## users.toml (файл на диске)
 
-Синхронизируется с API. Пример:
+Синхронизируется с API. При деплое через Ansible файл **не затирается**, если уже существует на сервере (см. [deploy/README.md](../deploy/README.md)).
+
+Пример:
 
 ```toml
 [general]

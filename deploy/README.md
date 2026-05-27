@@ -10,8 +10,10 @@
 
 | Компонент | Пример |
 | --- | --- |
-| MTProto proxy | `your-domain.example:3129` |
+| MTProto proxy | `your-domain.example:3129` — **не 2053** (там telemt, если он тоже на сервере) |
 | Control API (HTTPS) | `https://your-domain.example:8445/v1/...` |
+| Domain fronting | при failed handshake — dial hostname из user-secret; держите `MTG_DEFAULT_HOST` = `MTG_DOMAIN` |
+| Local self-steal (опционально) | `MTG_SELFSTEAL_ENABLED=true` → nginx на `8446` |
 | Пользователи | У каждого свой ee-secret, срок via API |
 | Файлы на сервере | `/opt/mtg/config.toml`, `users.toml`, `mtg` |
 
@@ -162,6 +164,16 @@ curl -sk -X POST "$API_URL/v1/users" \
   | jq -r '.data.user.links.tls[0]'
 ```
 
+**Продлить подписку** (PATCH):
+
+```bash
+curl -sk -X PATCH "$API_URL/v1/users/alice" \
+  -H "Authorization: $AUTH" \
+  -H "Content-Type: application/json" \
+  -d '{"expires_at":"2027-12-31T23:59:59Z"}' \
+  | jq .
+```
+
 **Получить** ссылку снова:
 
 ```bash
@@ -190,6 +202,16 @@ GOOS=linux GOARCH=amd64 go build -o deploy/mtg-linux-amd64 .
 set -a && source deploy/.env && set +a
 ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml
 ```
+
+### Пользователи при передеплое
+
+`users.toml` на сервере — **живые данные** (создаются через API). Playbook **не перезаписывает** его, если файл уже есть: при повторном `ansible-playbook` обновляются только бинарник, `config.toml`, nginx и systemd.
+
+При первом деплое создаётся пустой шаблон с `[general]` / `[general.links]`.
+
+Если нужно сменить `public-host` / `default-host` для **новых** пользователей, отредактируйте `/opt/mtg/users.toml` на сервере вручную или через API (пользователи уже созданные не меняются сами).
+
+Перед рискованными операциями на сервере лежит копия `users.toml.bak` (обновляется при каждом деплое, `changed_when: false` — только ensure).
 
 ---
 

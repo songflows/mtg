@@ -1,0 +1,18 @@
+# Self-steal HTTPS facade for mtg domain fronting — {{ mtg_domain }}
+# mtg dials 127.0.0.1:{{ mtg_selfsteal_port }} on failed handshake (SNI = {{ mtg_domain }}).
+
+server {
+    listen {{ mtg_selfsteal_port }} ssl http2;
+    listen [::]:{{ mtg_selfsteal_port }} ssl http2;
+    server_name {{ mtg_domain }};
+
+    ssl_certificate     /etc/letsencrypt/live/{{ mtg_domain }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ mtg_domain }}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    location / {
+        return 200 'OK';
+        add_header Content-Type text/plain;
+    }
+}

@@ -15,6 +15,7 @@ username = "alice"
 # ee-secret (base64 or hex). Omit to auto-generate on first load if default-host is set.
 secret = "ee473ce5d4958eb5f968c87680a23854a0676f6f676c652e636f6d"
 expiration-rfc3339 = "2027-01-01T00:00:00Z"
+max-unique-ips = 2
 
 [[users]]
 username = "bob"

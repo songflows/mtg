@@ -26,6 +26,7 @@ type FileUser struct {
 	Username            string `toml:"username"`
 	Secret              string `toml:"secret,omitempty"`
 	ExpirationRFC3339   string `toml:"expiration-rfc3339,omitempty"`
+	MaxUniqueIPs        int    `toml:"max-unique-ips,omitempty"`
 }
 
 // User is a runtime user record.
@@ -33,6 +34,7 @@ type User struct {
 	Username          string
 	Secret            mtglib.Secret
 	ExpiresAt         *time.Time
+	MaxUniqueIPs      *int
 }
 
 func (u *User) IsActive(now time.Time) bool {
@@ -73,10 +75,18 @@ func parseFileUser(fu FileUser, defaultHost string) (User, error) {
 		return User{}, fmt.Errorf("user %q: %w", fu.Username, err)
 	}
 
+	var maxUniqueIPs *int
+
+	if fu.MaxUniqueIPs > 0 {
+		v := fu.MaxUniqueIPs
+		maxUniqueIPs = &v
+	}
+
 	return User{
-		Username:  fu.Username,
-		Secret:    secret,
-		ExpiresAt: expiresAt,
+		Username:     fu.Username,
+		Secret:       secret,
+		ExpiresAt:    expiresAt,
+		MaxUniqueIPs: maxUniqueIPs,
 	}, nil
 }
 
@@ -107,6 +117,10 @@ func (fc *FileConfig) fromUsers(users []User) {
 
 		if u.ExpiresAt != nil {
 			fu.ExpirationRFC3339 = u.ExpiresAt.UTC().Format(time.RFC3339)
+		}
+
+		if u.MaxUniqueIPs != nil {
+			fu.MaxUniqueIPs = *u.MaxUniqueIPs
 		}
 
 		fc.Users[i] = fu

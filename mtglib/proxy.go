@@ -38,9 +38,10 @@ type Proxy struct {
 	doppelGanger                *doppel.Ganger
 	clientObfuscatror           obfuscation.Obfuscator
 
-	secret          Secret
-	secretProvider  SecretProvider
-	network         Network
+	secret                Secret
+	secretProvider        SecretProvider
+	userConnectionLimiter UserConnectionLimiter
+	network               Network
 	antiReplayCache AntiReplayCache
 	blocklist       IPBlocklist
 	allowlist       IPBlocklist
@@ -103,6 +104,15 @@ func (p *Proxy) ServeConn(conn essentials.Conn) {
 	if err := p.doObfuscatedHandshake(ctx); err != nil {
 		ctx.logger.InfoError("obfuscated handshake is failed", err)
 		return
+	}
+
+	if p.userConnectionLimiter != nil {
+		if err := p.userConnectionLimiter.Acquire(ctx.secret, ctx.ClientIP()); err != nil {
+			ctx.logger.InfoError("connection limit exceeded", err)
+			return
+		}
+
+		defer p.userConnectionLimiter.Release(ctx.secret, ctx.ClientIP())
 	}
 
 	if err := ctx.clientConn.SetDeadline(time.Time{}); err != nil {
@@ -390,6 +400,7 @@ func NewProxy(opts ProxyOpts) (*Proxy, error) {
 		ctxCancel:                cancel,
 		secret:                   opts.Secret,
 		secretProvider:           opts.SecretProvider,
+		userConnectionLimiter:    opts.UserConnectionLimiter,
 		network:                  opts.Network,
 		antiReplayCache:          opts.AntiReplayCache,
 		blocklist:                opts.IPBlocklist,

@@ -209,6 +209,47 @@ func (suite *ConnRewindTestSuite) TestRead() {
 	suite.Equal([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, data)
 }
 
+func (suite *ConnRewindTestSuite) TestRewindNoOpBeforeFirstRead() {
+	suite.connMock.On("Read", mock.Anything)
+	suite.connMock.readBuffer.Write([]byte{1, 2, 3})
+
+	buf := make([]byte, 3)
+	n, err := suite.conn.Read(buf)
+	suite.NoError(err)
+	suite.Equal(3, n)
+
+	suite.conn.Rewind()
+
+	n, err = suite.conn.Read(buf)
+	suite.NoError(err)
+	suite.Equal(3, n)
+	suite.Equal([]byte{1, 2, 3}, buf)
+}
+
+func (suite *ConnRewindTestSuite) TestDoubleRewindAfterFullRead() {
+	payload := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	suite.connMock.On("Read", mock.Anything)
+	suite.connMock.readBuffer.Write(payload)
+
+	buf := make([]byte, len(payload))
+	n, err := io.ReadFull(suite.conn, buf)
+	suite.NoError(err)
+	suite.Equal(len(payload), n)
+	suite.Equal(payload, buf)
+
+	suite.conn.Rewind()
+
+	first, err := io.ReadAll(suite.conn)
+	suite.NoError(err)
+	suite.Equal(payload, first)
+
+	suite.conn.Rewind()
+
+	second, err := io.ReadAll(suite.conn)
+	suite.NoError(err)
+	suite.Equal(payload, second)
+}
+
 type ConnProxyProtocolTestSuite struct {
 	suite.Suite
 

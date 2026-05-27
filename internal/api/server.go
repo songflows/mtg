@@ -128,10 +128,18 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.handleHealth(w, r)
 	case path == apiPrefix+"/users" && r.Method == http.MethodPost:
 		s.handleCreateUser(w, r)
-	case strings.HasPrefix(path, apiPrefix+"/users/") && r.Method == http.MethodGet:
-		s.handleGetUser(w, r, strings.TrimPrefix(path, apiPrefix+"/users/"))
-	case strings.HasPrefix(path, apiPrefix+"/users/") && r.Method == http.MethodDelete:
-		s.handleDeleteUser(w, r, strings.TrimPrefix(path, apiPrefix+"/users/"))
+	case strings.HasPrefix(path, apiPrefix+"/users/"):
+		username := strings.TrimPrefix(path, apiPrefix+"/users/")
+		switch r.Method {
+		case http.MethodGet:
+			s.handleGetUser(w, r, username)
+		case http.MethodPatch:
+			s.handlePatchUser(w, r, username)
+		case http.MethodDelete:
+			s.handleDeleteUser(w, r, username)
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method for user route", revisionOrEmpty(s))
+		}
 	default:
 		writeError(w, http.StatusNotFound, "not_found", "unknown route", revisionOrEmpty(s))
 	}
@@ -179,10 +187,10 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error(), s.store.Revision())
 	default:
-		info := users.ToUserInfo(user, s.linkBase, time.Now())
+		info := users.ToUserInfo(user, s.linkBase, time.Now(), s.store)
 		writeOK(w, http.StatusCreated, users.CreateUserResponse{
 			User:   info,
-			Secret: user.Secret.String(),
+			Secret: user.Secret.Hex(),
 		}, s.store.Revision())
 	}
 }
@@ -207,7 +215,64 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request, username 
 		return
 	}
 
-	writeOK(w, http.StatusOK, users.ToUserInfo(user, s.linkBase, time.Now()), s.store.Revision())
+	writeOK(w, http.StatusOK, users.ToUserInfo(user, s.linkBase, time.Now(), s.store), s.store.Revision())
+}
+
+func (s *Server) handlePatchUser(w http.ResponseWriter, r *http.Request, username string) {
+	if s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "api_disabled", "users store is not configured", "")
+
+		return
+	}
+
+	if s.readOnly {
+		writeError(w, http.StatusForbidden, "read_only", "API is in read-only mode", s.store.Revision())
+
+		return
+	}
+
+	if username == "" || strings.Contains(username, "/") {
+		writeError(w, http.StatusNotFound, "not_found", "unknown user", s.store.Revision())
+
+		return
+	}
+
+	body, err := readBody(r, s.bodyLimit)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error(), s.store.Revision())
+
+		return
+	}
+
+	req := users.PatchUserRequest{}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid JSON", s.store.Revision())
+
+		return
+	}
+
+	if len(body) > 0 && len(req.Secret) == 0 && len(req.ExpirationRFC3339) == 0 &&
+		len(req.ExpiresAt) == 0 && len(req.MaxUniqueIPs) == 0 && len(req.ActiveUniqueIPs) == 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "empty patch body", s.store.Revision())
+
+		return
+	}
+
+	user, err := s.store.Patch(username, req, r.Header.Get("If-Match"))
+	if err != nil {
+		if errors.Is(err, users.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "unknown user", s.store.Revision())
+
+			return
+		}
+
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error(), s.store.Revision())
+
+		return
+	}
+
+	writeOK(w, http.StatusOK, users.ToUserInfo(user, s.linkBase, time.Now(), s.store), s.store.Revision())
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request, username string) {

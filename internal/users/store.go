@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/9seconds/mtg/v2/mtglib"
 )
+
+// Store implements mtglib.UserConnectionLimiter via Acquire/Release.
 
 var (
 	ErrUserExists   = errors.New("user already exists")
@@ -27,6 +30,7 @@ type Store struct {
 	file     FileConfig
 	users    map[string]User
 	revision string
+	limiter  *connectionLimiter
 }
 
 // NewStore loads or creates a users file.
@@ -40,7 +44,37 @@ func NewStore(path string) (*Store, error) {
 		return nil, err
 	}
 
+	s.limiter = newConnectionLimiter(s)
+
 	return s, nil
+}
+
+// Acquire implements mtglib.UserConnectionLimiter.
+func (s *Store) Acquire(secret mtglib.Secret, ip net.IP) error {
+	return s.limiter.Acquire(secret, ip)
+}
+
+// Release implements mtglib.UserConnectionLimiter.
+func (s *Store) Release(secret mtglib.Secret, ip net.IP) {
+	s.limiter.Release(secret, ip)
+}
+
+// ConnectionStatsForTest exposes live connection stats (tests only).
+func (s *Store) ConnectionStatsForTest(username string) (activeUniqueIPs, currentConnections int) {
+	return s.limiter.Stats(username)
+}
+
+func (s *Store) userBySecret(secret mtglib.Secret) (User, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, u := range s.users {
+		if u.Secret.Key == secret.Key {
+			return u, true
+		}
+	}
+
+	return User{}, false
 }
 
 // Path returns the backing file path.
@@ -124,6 +158,30 @@ type CreateUserRequest struct {
 	Secret              string  `json:"secret,omitempty"`
 	ExpirationRFC3339   *string `json:"expiration_rfc3339,omitempty"`
 	ExpiresAt           *string `json:"expires_at,omitempty"`
+	MaxUniqueIPs        *int    `json:"max_unique_ips,omitempty"`
+	// ActiveUniqueIPs is a mistaken alias for MaxUniqueIPs in requests (ignored in responses).
+	ActiveUniqueIPs *int `json:"active_unique_ips,omitempty"`
+}
+
+func (req CreateUserRequest) resolveMaxUniqueIPs() (*int, error) {
+	limit := req.MaxUniqueIPs
+	if limit == nil {
+		limit = req.ActiveUniqueIPs
+	}
+
+	if limit == nil {
+		return nil, nil
+	}
+
+	if *limit < 0 {
+		return nil, fmt.Errorf("max_unique_ips must be >= 0")
+	}
+
+	if req.MaxUniqueIPs != nil && req.ActiveUniqueIPs != nil && *req.MaxUniqueIPs != *req.ActiveUniqueIPs {
+		return nil, fmt.Errorf("max_unique_ips and active_unique_ips conflict")
+	}
+
+	return limit, nil
 }
 
 // Create adds a new user and persists the file.
@@ -133,6 +191,11 @@ func (s *Store) Create(req CreateUserRequest, expectedRevision string) (User, er
 	}
 
 	expiration, err := parseExpiration(req.ExpirationRFC3339, req.ExpiresAt)
+	if err != nil {
+		return User{}, err
+	}
+
+	maxUniqueIPs, err := req.resolveMaxUniqueIPs()
 	if err != nil {
 		return User{}, err
 	}
@@ -153,6 +216,9 @@ func (s *Store) Create(req CreateUserRequest, expectedRevision string) (User, er
 		Secret:              req.Secret,
 		ExpirationRFC3339: formatExpiration(expiration),
 	}
+	if maxUniqueIPs != nil {
+		fu.MaxUniqueIPs = *maxUniqueIPs
+	}
 
 	u, err := parseFileUser(fu, s.file.General.DefaultHost)
 	if err != nil {
@@ -168,6 +234,44 @@ func (s *Store) Create(req CreateUserRequest, expectedRevision string) (User, er
 	}
 
 	return u, nil
+}
+
+// Patch applies a partial update to an existing user.
+func (s *Store) Patch(username string, req PatchUserRequest, expectedRevision string) (User, error) {
+	if err := validateUsername(username); err != nil {
+		return User{}, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.checkRevision(expectedRevision); err != nil {
+		return User{}, err
+	}
+
+	u, ok := s.users[username]
+	if !ok {
+		return User{}, ErrUserNotFound
+	}
+
+	updated, err := req.applyTo(u)
+	if err != nil {
+		return User{}, err
+	}
+
+	if updated.Secret != u.Secret {
+		s.limiter.clearUser(username)
+	}
+
+	s.users[username] = updated
+
+	if err := s.persistLocked(); err != nil {
+		s.users[username] = u
+
+		return User{}, err
+	}
+
+	return updated, nil
 }
 
 // Delete removes a user permanently (revoke).
@@ -188,6 +292,7 @@ func (s *Store) Delete(username string, expectedRevision string) error {
 	}
 
 	delete(s.users, username)
+	s.limiter.clearUser(username)
 
 	return s.persistLocked()
 }

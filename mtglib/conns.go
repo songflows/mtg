@@ -54,7 +54,13 @@ func (c *connRewind) Read(p []byte) (int, error) {
 }
 
 func (c *connRewind) Rewind() {
-	c.active = io.MultiReader(&c.buf, c.Conn)
+	// First matchClientHello attempt must read through TeeReader so bytes land in
+	// buf. Calling Rewind() before that would replace TeeReader with an empty reader.
+	if c.buf.Len() == 0 {
+		return
+	}
+
+	c.active = io.MultiReader(bytes.NewReader(c.buf.Bytes()), c.Conn)
 }
 
 func newConnRewind(conn essentials.Conn) *connRewind {

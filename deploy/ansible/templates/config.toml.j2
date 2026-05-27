@@ -5,6 +5,9 @@ users-file = "{{ mtg_install_dir }}/users.toml"
 
 public-ipv4 = "{{ mtg_public_ip }}"
 
+# FakeTLS timestamp window (client clock skew).
+tolerate-time-skewness = "30s"
+
 [api]
 enabled = true
 listen = "{{ mtg_api_bind }}"
@@ -12,5 +15,14 @@ whitelist = ["127.0.0.1/32", "::1/128"]
 auth-header = "{{ mtg_api_auth_header }}"
 read-only = false
 
+# On failed handshake mtg dials the hostname embedded in the client secret (SNI).
+# Use MTG_DEFAULT_HOST = MTG_DOMAIN so fronting hits this server, not a third-party site.
+
 [defense.anti-replay]
 enabled = true
+
+[defense.blocklist]
+enabled = false
+
+[defense.allowlist]
+enabled = false

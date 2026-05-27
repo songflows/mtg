@@ -17,6 +17,9 @@ type ProxyOpts struct {
 	// a template (domain fronting fallback) but is not used for auth.
 	SecretProvider SecretProvider
 
+	// UserConnectionLimiter enforces per-user limits (e.g. max unique source IPs).
+	UserConnectionLimiter UserConnectionLimiter
+
 	// Network defines a network instance which should be used for all network
 	// communications made by proxies.
 	//

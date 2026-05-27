@@ -1,6 +1,7 @@
 package users_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,6 +64,34 @@ func (s *StoreTestSuite) TestExpiresAtAlias() {
 	u, err := store.Get("bob")
 	s.Require().NoError(err)
 	s.Require().NotNil(u.ExpiresAt)
+}
+
+func (s *StoreTestSuite) TestPatchExpiration() {
+	store, err := users.NewStore(s.path)
+	s.Require().NoError(err)
+	store.SetDefaultHost("google.com")
+
+	_, err = store.Create(users.CreateUserRequest{Username: "alice"}, "")
+	s.Require().NoError(err)
+
+	newExp := json.RawMessage(`"2031-06-15T12:00:00Z"`)
+	updated, err := store.Patch("alice", users.PatchUserRequest{
+		ExpirationRFC3339: newExp,
+	}, "")
+	s.Require().NoError(err)
+	s.Require().NotNil(updated.ExpiresAt)
+	s.Equal(2031, updated.ExpiresAt.Year())
+
+	updated, err = store.Patch("alice", users.PatchUserRequest{
+		ExpirationRFC3339: json.RawMessage(`null`),
+	}, store.Revision())
+	s.Require().NoError(err)
+	s.Nil(updated.ExpiresAt)
+
+	_, err = store.Patch("nobody", users.PatchUserRequest{
+		ExpiresAt: json.RawMessage(`"2031-01-01T00:00:00Z"`),
+	}, "")
+	s.ErrorIs(err, users.ErrUserNotFound)
 }
 
 func (s *StoreTestSuite) TestActiveSecretsSkipsExpired() {

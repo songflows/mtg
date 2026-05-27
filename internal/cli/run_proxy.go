@@ -345,9 +345,9 @@ func runProxy(conf *config.Config, version string, configPath string) error { //
 		IPAllowlist:     allowlist,
 		EventStream:     eventStream,
 
-		Secret:                      conf.Secret,
-		SecretProvider:              userStore,
-		Concurrency:                 conf.GetConcurrency(mtglib.DefaultConcurrency),
+		Secret:         conf.Secret,
+		SecretProvider: nil,
+		Concurrency:           conf.GetConcurrency(mtglib.DefaultConcurrency),
 		DomainFrontingPort:          conf.GetDomainFrontingPort(mtglib.DefaultDomainFrontingPort),
 		DomainFrontingHost:          conf.GetDomainFrontingHost(),
 		DomainFrontingProxyProtocol: conf.GetDomainFrontingProxyProtocol(false),
@@ -363,6 +363,11 @@ func runProxy(conf *config.Config, version string, configPath string) error { //
 		DoppelGangerPerRaid: conf.Defense.Doppelganger.Repeats.Get(mtglib.DoppelGangerPerRaid),
 		DoppelGangerEach:    conf.Defense.Doppelganger.UpdateEach.Get(mtglib.DoppelGangerEach),
 		DoppelGangerDRS:     conf.Defense.Doppelganger.DRS.Get(false),
+	}
+
+	if userStore != nil {
+		opts.SecretProvider = userStore
+		opts.UserConnectionLimiter = userStore
 	}
 
 	proxy, err := mtglib.NewProxy(opts)

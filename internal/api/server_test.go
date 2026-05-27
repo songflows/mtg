@@ -71,6 +71,22 @@ func (s *APITestSuite) TestCreateGetDeleteUser() {
 	rec = s.do(http.MethodGet, "/v1/users/alice", nil)
 	s.Equal(http.StatusOK, rec.Code)
 
+	newExp := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
+	rec = s.do(http.MethodPatch, "/v1/users/alice", map[string]any{
+		"expires_at": newExp,
+	})
+	s.Equal(http.StatusOK, rec.Code)
+
+	var patchEnvelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			ExpirationRFC3339 string `json:"expiration_rfc3339"`
+		} `json:"data"`
+	}
+	s.Require().NoError(json.Unmarshal(rec.Body.Bytes(), &patchEnvelope))
+	s.True(patchEnvelope.OK)
+	s.Equal(newExp, patchEnvelope.Data.ExpirationRFC3339)
+
 	var envelope struct {
 		OK   bool `json:"ok"`
 		Data struct {

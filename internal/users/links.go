@@ -3,7 +3,7 @@ package users
 import (
 	"net"
 	"net/url"
-	"strconv"
+	"fmt"
 
 	"github.com/9seconds/mtg/v2/internal/utils"
 	"github.com/9seconds/mtg/v2/mtglib"
@@ -41,21 +41,20 @@ func linkHosts(settings LinkSettings) []string {
 }
 
 func buildProxyURL(host string, port uint, secret mtglib.Secret, hexEncoding bool) string {
-	values := url.Values{}
-	values.Set("server", host)
-	values.Set("port", strconv.Itoa(int(port)))
-
-	if hexEncoding {
-		values.Set("secret", secret.Hex())
-	} else {
-		values.Set("secret", secret.Base64())
-	}
-
-	return (&url.URL{
-		Scheme:   "tg",
-		Host:     "proxy",
-		RawQuery: values.Encode(),
-	}).String()
+    // Preserve parameter order: server, port, secret
+    var secretStr string
+    if hexEncoding {
+        secretStr = secret.Hex()
+    } else {
+        secretStr = secret.Base64()
+    }
+    // Manually encode parameters to keep order
+    rawQuery := fmt.Sprintf("server=%s&port=%d&secret=%s", url.QueryEscape(host), port, url.QueryEscape(secretStr))
+    return (&url.URL{
+        Scheme:   "tg",
+        Host:     "proxy",
+        RawQuery: rawQuery,
+    }).String()
 }
 
 // LinkSettingsFromIPs merges explicit settings with resolved public IPs.
