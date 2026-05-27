@@ -57,6 +57,7 @@ type tomlConfig struct {
 			UpdateEach          string   `toml:"update-each" json:"updateEach,omitempty"`
 		} `toml:"allowlist" json:"allowlist,omitempty"`
 		Doppelganger struct {
+			Disabled   bool     `toml:"disabled" json:"disabled,omitempty"`
 			URLs       []string `toml:"urls" json:"urls,omitempty"`
 			Repeats    uint     `toml:"repeats-per-raid" json:"repeats_per_raid,omitempty"`
 			UpdateEach string   `toml:"raid-each" json:"raid_each,omitempty"`

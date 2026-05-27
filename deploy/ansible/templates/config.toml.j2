@@ -5,8 +5,17 @@ users-file = "{{ mtg_install_dir }}/users.toml"
 
 public-ipv4 = "{{ mtg_public_ip }}"
 
+# Dial Telegram DCs over IPv4. Default prefer-ipv6 breaks large media on many VPS.
+prefer-ip = "prefer-ipv4"
+
 # FakeTLS timestamp window (client clock skew).
 tolerate-time-skewness = "30s"
+
+[network.timeout]
+idle = "30m"
+
+[network]
+tcp-not-sent-lowat = "2mib"
 
 [api]
 enabled = true
@@ -20,6 +29,10 @@ read-only = false
 
 [defense.anti-replay]
 enabled = true
+
+[defense.doppelganger]
+# Artificial TLS record delays (high Telegram ping). Off for low-latency use.
+disabled = true
 
 [defense.blocklist]
 enabled = false

@@ -92,14 +92,16 @@ func (p *Proxy) ServeConn(conn essentials.Conn) {
 		return
 	}
 
-	clientConn, err := p.doppelGanger.NewConn(ctx.clientConn)
-	if err != nil {
-		ctx.logger.InfoError("cannot wrap into doppelganger connection", err)
-		return
-	}
-	defer clientConn.Stop()
+	if p.doppelGanger != nil {
+		clientConn, err := p.doppelGanger.NewConn(ctx.clientConn)
+		if err != nil {
+			ctx.logger.InfoError("cannot wrap into doppelganger connection", err)
+			return
+		}
+		defer clientConn.Stop()
 
-	ctx.clientConn = clientConn
+		ctx.clientConn = clientConn
+	}
 
 	if err := p.doObfuscatedHandshake(ctx); err != nil {
 		ctx.logger.InfoError("obfuscated handshake is failed", err)
@@ -191,7 +193,9 @@ func (p *Proxy) Shutdown() {
 	p.streamWaitGroup.Wait()
 	p.workerPool.Release()
 	p.configUpdater.Wait()
-	p.doppelGanger.Shutdown()
+	if p.doppelGanger != nil {
+		p.doppelGanger.Shutdown()
+	}
 
 	p.allowlist.Shutdown()
 	p.blocklist.Shutdown()
@@ -214,8 +218,7 @@ func (p *Proxy) doFakeTLSHandshake(ctx *streamContext) bool {
 		return false
 	}
 
-	gangerNoise := p.doppelGanger.NoiseParams()
-	noiseParams := fake.NoiseParams{Mean: gangerNoise.Mean, Jitter: gangerNoise.Jitter}
+	noiseParams := p.doppelNoiseParams()
 
 	if err := fake.SendServerHello(ctx.clientConn, secret.Key[:], clientHello, noiseParams); err != nil {
 		p.logger.InfoError("cannot send welcome packet", err)
@@ -223,7 +226,9 @@ func (p *Proxy) doFakeTLSHandshake(ctx *streamContext) bool {
 	}
 
 	ctx.secret = secret
-	ctx.clientConn = tls.New(ctx.clientConn, true, false)
+	// Doppel wraps outbound data in TLS records with optional delays; without it,
+	// tls.Conn must write TLS application records itself.
+	ctx.clientConn = tls.New(ctx.clientConn, true, p.doppelGanger == nil)
 
 	return true
 }
@@ -261,6 +266,16 @@ func (p *Proxy) handshakeSecrets() []Secret {
 	}
 
 	return []Secret{p.secret}
+}
+
+func (p *Proxy) doppelNoiseParams() fake.NoiseParams {
+	if p.doppelGanger == nil {
+		return fake.NoiseParams{}
+	}
+
+	gangerNoise := p.doppelGanger.NoiseParams()
+
+	return fake.NoiseParams{Mean: gangerNoise.Mean, Jitter: gangerNoise.Jitter}
 }
 
 func (p *Proxy) doObfuscatedHandshake(ctx *streamContext) error {
@@ -413,16 +428,7 @@ func NewProxy(opts ProxyOpts) (*Proxy, error) {
 		idleTimeout:              opts.getIdleTimeout(),
 		handshakeTimeout:         opts.getHandshakeTimeout(),
 		allowFallbackOnUnknownDC: opts.AllowFallbackOnUnknownDC,
-		telegram:                 tg,
-		doppelGanger: doppel.NewGanger(
-			ctx,
-			opts.Network,
-			logger.Named("doppelganger"),
-			opts.DoppelGangerEach,
-			int(opts.DoppelGangerPerRaid),
-			opts.DoppelGangerURLs,
-			opts.DoppelGangerDRS,
-		),
+		telegram: tg,
 		configUpdater: dc.NewPublicConfigUpdater(
 			tg,
 			updatersLogger.Named("public-config"),
@@ -434,7 +440,18 @@ func NewProxy(opts ProxyOpts) (*Proxy, error) {
 		domainFrontingProxyProtocol: opts.DomainFrontingProxyProtocol,
 	}
 
-	proxy.doppelGanger.Run()
+	if !opts.DoppelGangerDisabled {
+		proxy.doppelGanger = doppel.NewGanger(
+			ctx,
+			opts.Network,
+			logger.Named("doppelganger"),
+			opts.DoppelGangerEach,
+			int(opts.DoppelGangerPerRaid),
+			opts.DoppelGangerURLs,
+			opts.DoppelGangerDRS,
+		)
+		proxy.doppelGanger.Run()
+	}
 
 	if opts.AutoUpdate {
 		proxy.configUpdater.Run(ctx, dc.PublicConfigUpdateURLv4, "tcp4")

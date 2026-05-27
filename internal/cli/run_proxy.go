@@ -359,10 +359,11 @@ func runProxy(conf *config.Config, version string, configPath string) error { //
 		IdleTimeout:              conf.Network.Timeout.Idle.Get(mtglib.DefaultIdleTimeout),
 		HandshakeTimeout:         conf.Network.Timeout.Handshake.Get(mtglib.DefaultHandshakeTimeout),
 
-		DoppelGangerURLs:    doppelGangerURLs,
-		DoppelGangerPerRaid: conf.Defense.Doppelganger.Repeats.Get(mtglib.DoppelGangerPerRaid),
-		DoppelGangerEach:    conf.Defense.Doppelganger.UpdateEach.Get(mtglib.DoppelGangerEach),
-		DoppelGangerDRS:     conf.Defense.Doppelganger.DRS.Get(false),
+		DoppelGangerURLs:     doppelGangerURLs,
+		DoppelGangerPerRaid:  conf.Defense.Doppelganger.Repeats.Get(mtglib.DoppelGangerPerRaid),
+		DoppelGangerEach:     conf.Defense.Doppelganger.UpdateEach.Get(mtglib.DoppelGangerEach),
+		DoppelGangerDRS:      conf.Defense.Doppelganger.DRS.Get(false),
+		DoppelGangerDisabled: conf.Defense.Doppelganger.Disabled.Get(false),
 	}
 
 	if userStore != nil {

@@ -54,6 +54,7 @@ type Config struct {
 		Blocklist    ListConfig `json:"blocklist"`
 		Allowlist    ListConfig `json:"allowlist"`
 		Doppelganger struct {
+			Disabled   TypeBool        `json:"disabled"`
 			URLs       []TypeHttpsURL  `json:"urls"`
 			Repeats    TypeConcurrency `json:"repeats_per_raid"`
 			UpdateEach TypeDuration    `json:"raid_each"`

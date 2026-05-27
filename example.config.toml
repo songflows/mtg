@@ -285,6 +285,9 @@ count = 9
 # of heavy content like a video. Weibul is great about short bursts like
 # user who requested a static page an a couple of images.
 [defense.doppelganger]
+# Disable traffic-shaping delays on the client-bound FakeTLS stream (lower ping).
+# disabled = true
+
 # This is a list of URLs that would be crawled by mtg to approximate delay
 # statistics. They MUST be HTTPS urls.
 #

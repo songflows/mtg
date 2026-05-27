@@ -185,6 +185,10 @@ type ProxyOpts struct {
 
 	// DoppelGangerDRS defines if TLS Dynamic Record Sizing is active.
 	DoppelGangerDRS bool
+
+	// DoppelGangerDisabled turns off traffic shaping that mimics real TLS sites.
+	// Disabling lowers latency (Telegram ping) at the cost of weaker DPI mimicry.
+	DoppelGangerDisabled bool
 }
 
 func (p ProxyOpts) valid() error {
